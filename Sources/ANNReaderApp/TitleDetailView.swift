@@ -2,6 +2,8 @@ import SwiftUI
 import SwiftData
 import ANNKit
 
+/// детальная страница тайтла: постер слева, вся информация (тип, поля, озвучка,
+/// команда) справа; добавление в избранное из тулбара
 struct TitleDetailView: View {
     let kind: TitleKind
     let id: String

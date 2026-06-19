@@ -16,17 +16,17 @@
 
 ## Features
 
-- **News and articles** across every category (All, News, Interest, Reviews, Features, Columns) shown as cards with large preview images.
-- **Built-in reader** that extracts just the article text and images, drops ads and empty gaps, and loads behind a skeleton so you never see the raw page. A Safari fallback is always one click away.
+- **News and articles** across every category (All, News, Interest, Reviews, Features, Columns) shown in an adaptive grid of cards with large preview images that grows as you widen the window.
+- **Built-in reader** that extracts just the article text, images, and embedded videos, drops ads and empty gaps, and loads behind a skeleton so you never see the raw page. A Safari fallback is always one click away.
 - **Reader you can tune**: text size, font (System, New York, Georgia, Charter, Iowan Old Style, Palatino, Helvetica, Verdana), background theme (Auto, Light, Sepia, Dark), and a dyslexia-friendly mode with wider spacing.
 - **Save anything**: bookmark any article. Saved pages are stored on device with their images inlined, so they open instantly and fully offline.
 - **Encyclopedia** catalog for anime and manga with search and first-letter paging; each title shows its poster, info fields, voice cast, and staff.
-- **Favorites** kept on device with SwiftData, plus a short-lived page cache for instant reopen.
+- **Favorites** kept on device with SwiftData, plus a 15-day on-device cache of pages and images for instant reopen and offline reading.
 - Liquid Glass interface, localized in English, Russian, and French.
 
 ## Install
 
-1. Download `ANN Reader 1.0.dmg` from the [Releases](../../releases) page.
+1. Download the `.dmg` from the [Releases](../../releases) page.
 2. Open the disk image and drag **ANN Reader** into your **Applications** folder.
 3. The build is signed ad-hoc and is **not notarized**, so macOS Gatekeeper blocks it on the first launch. Open it once this way:
    - **Right-click** (or Control-click) **ANN Reader** in Applications and choose **Open**, then click **Open** in the dialog.

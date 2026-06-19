@@ -56,6 +56,8 @@ enum Tab: String, CaseIterable, Identifiable {
     }
 }
 
+/// главное окно: сайдбар разделов (ленты, энциклопедия, избранное, сохранённое)
+/// и детальная область с отдельным стеком навигации на каждый раздел
 struct ContentView: View {
     @Environment(AppModel.self) private var model
     @State private var tab: Tab = .all

@@ -3,6 +3,8 @@ import ANNKit
 
 private let letters = (65...90).map { String(UnicodeScalar($0)!) }  // A..Z
 
+/// каталог энциклопедии (аниме или манга): поиск по названию, фильтр по первой
+/// букве и подгрузка следующих страниц
 struct CatalogView: View {
     let kind: TitleKind
     @Environment(AppModel.self) private var model

@@ -1,6 +1,8 @@
 import SwiftUI
 import ANNKit
 
+/// лента категории: карточки статей в адаптивном гриде, число колонок растёт
+/// с шириной окна с плавной анимацией
 struct NewsListView: View {
     let feed: URL
     let title: LocalizedStringKey
