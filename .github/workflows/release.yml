@@ -1,0 +1,26 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: install create-dmg
+        run: npm install -g create-dmg
+      - name: build app bundle and dmg
+        run: ./package.sh
+      - name: publish release with dmg
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/*.dmg \
+            --title "ANN Reader ${GITHUB_REF_NAME#v}" \
+            --generate-notes

@@ -5,6 +5,7 @@
 <p align="center">A native macOS app for reading Anime News Network: news and articles with a clean built-in reader, plus the anime/manga encyclopedia.</p>
 
 <p align="center">
+  <a href="https://github.com/boundlessend/ann_reader/actions/workflows/ci.yml"><img src="https://github.com/boundlessend/ann_reader/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/boundlessend/ann_reader/releases/latest"><img src="https://img.shields.io/github/v/release/boundlessend/ann_reader?sort=semver" alt="Latest release"></a>
   <a href="https://github.com/boundlessend/ann_reader/releases"><img src="https://img.shields.io/github/downloads/boundlessend/ann_reader/total" alt="Downloads"></a>
   <img src="https://img.shields.io/badge/platform-macOS%2026-blue" alt="Platform">
