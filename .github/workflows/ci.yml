@@ -1,0 +1,28 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: run ANNKit tests
+        run: swift test
+
+  package:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: install create-dmg
+        run: npm install -g create-dmg
+      - name: build app bundle and dmg
+        run: ./package.sh
+      - name: upload dmg artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ANN-Reader-dmg
+          path: dist/*.dmg
+          if-no-files-found: error
