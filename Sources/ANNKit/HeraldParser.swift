@@ -37,8 +37,10 @@ public enum HeraldParser {
 
     private static func item(from block: Substring, iso: ISO8601DateFormatter) -> NewsItem? {
         let s = String(block)
-        guard let id = first(s, #"data-topics="article(\d+)"#),
-              let href = first(s, #"<a href="(/[a-z]+/\d{4}-\d{2}-\d{2}/[^"]+)""#),
+        guard let id = first(s, #"data-topics="article(\d+)"#) else { return nil }
+        // ссылка статьи всегда заканчивается на "/.<id>"; не привязываемся к дате в пути,
+        // иначе обзоры (/review/title/sub/.id без даты) не находятся
+        guard let href = first(s, "<a href=\"(/[^\"]*?/\\.\(id))\""),
               let url = URL(string: host + href) else { return nil }
 
         let title = first(s, #"<h3>\s*<a [^>]*>(.*?)</a>"#).map(cleanTitle) ?? href

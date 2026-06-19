@@ -104,11 +104,29 @@ private func stubSession() -> URLSession {
       </div></div>
     </div>
     """
-    let items = try HeraldParser.parse(Data(html.utf8))
+    // обзор: путь без даты - проверяем, что он тоже парсится (ловится по id)
+    let review = """
+    <div class="herald box reviews t-review" data-topics="article238365 reviews live-action">
+      <div class="thumbnail lazyload" data-src="/thumbnails/crop348x200gJA/cms/review.2/238365/poster.jpg">
+        <a href="/review/uncanny-counter-season-1/live-action-series/.238365"></a>
+      </div>
+      <div class="wrap"><div><h3>
+        <a href="/review/uncanny-counter-season-1/live-action-series/.238365"><cite>Uncanny Counter</cite> Season 1 Review</a>
+      </h3>
+      <div class="byline"><time datetime="2026-06-17T16:00:00+00:00">Jun 17</time></div>
+      </div></div>
+    </div>
+    """
+    let items = try HeraldParser.parse(Data((html + review).utf8))
     let item = try #require(items.first)
     #expect(item.id == "238699")
     #expect(item.title == "'Sample & Co' Anime Reveals Cast")
     #expect(item.link.absoluteString == "https://www.animenewsnetwork.com/news/2026-06-19/sample-anime-reveals-cast/.238699")
     #expect(item.imageURL?.absoluteString == "https://www.animenewsnetwork.com/thumbnails/crop348x200gH8/youtube/Gq5ps9WFkhM.jpg")
     #expect(item.published != nil)
+
+    let rev = try #require(items.first { $0.id == "238365" })
+    #expect(rev.title == "Uncanny Counter Season 1 Review")
+    #expect(rev.link.absoluteString == "https://www.animenewsnetwork.com/review/uncanny-counter-season-1/live-action-series/.238365")
+    #expect(rev.imageURL != nil)
 }

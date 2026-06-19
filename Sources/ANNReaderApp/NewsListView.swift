@@ -6,32 +6,46 @@ struct NewsListView: View {
     let title: LocalizedStringKey
     @Environment(AppModel.self) private var model
 
+    private let spacing: CGFloat = 16
+    private let pad: CGFloat = 20
+    private let target: CGFloat = 226   // желаемая ширина ячейки с учётом spacing
+
+    // число колонок от ширины: считаем сами, чтобы плавно анимировать появление
+    // новой колонки при расширении окна (адаптивный GridItem перестраивается рывком)
+    private func columnCount(for width: CGFloat) -> Int {
+        max(1, Int((width - 2 * pad + spacing) / target))
+    }
+
     var body: some View {
         Group {
             if let err = model.newsError {
                 ContentUnavailableView("Could not load news", systemImage: "wifi.slash",
                                        description: Text(err))
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 18) {
-                        if model.loadingNews && model.news.isEmpty {
-                            ForEach(0..<4, id: \.self) { _ in NewsCardSkeleton() }
-                        } else {
-                            ForEach(model.news) { item in
-                                NavigationLink {
-                                    ReaderView(url: item.link, title: item.title, offlineHTML: nil)
-                                } label: {
-                                    NewsCard(item: item)
+                GeometryReader { geo in
+                    let count = columnCount(for: geo.size.width)
+                    let columns = Array(repeating: GridItem(.flexible(maximum: 280), spacing: spacing),
+                                        count: count)
+                    ScrollView {
+                        LazyVGrid(columns: columns, spacing: spacing) {
+                            if model.loadingNews && model.news.isEmpty {
+                                ForEach(0..<9, id: \.self) { _ in NewsCardSkeleton() }
+                            } else {
+                                ForEach(model.news) { item in
+                                    NavigationLink {
+                                        ReaderView(url: item.link, title: item.title, offlineHTML: nil)
+                                    } label: {
+                                        NewsCard(item: item)
+                                    }
+                                    .buttonStyle(.plain)
                                 }
-                                .buttonStyle(.plain)
                             }
                         }
+                        .padding(pad)
+                        .animation(.smooth(duration: 0.3), value: count)
+                        .animation(.easeOut(duration: 0.25), value: model.news.map(\.id))
                     }
-                    .padding(20)
-                    .frame(maxWidth: 820)
-                    .frame(maxWidth: .infinity)
                 }
-                .animation(.easeOut(duration: 0.25), value: model.news.map(\.id))
             }
         }
         .navigationTitle(title)
@@ -42,31 +56,33 @@ struct NewsListView: View {
     }
 }
 
-/// карточка новости с крупным превью и мягким подъёмом при наведении
+/// карточка новости: превью 16:9 (родное соотношение - без обрезки) и текст под ним
 private struct NewsCard: View {
     let item: NewsItem
     @State private var hovering = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             preview
             Text(item.title)
-                .font(.title3.weight(.semibold))
+                .font(.headline)
                 .multilineTextAlignment(.leading)
                 .lineLimit(3)
                 .fixedSize(horizontal: false, vertical: true)
             if let date = item.published {
-                Text(date, format: .dateTime.weekday(.wide).day().month().hour().minute())
+                Text(date, format: .dateTime.day().month().hour().minute())
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            Spacer(minLength: 0)
         }
-        .padding(14)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(.separator.opacity(0.5)))
-        .shadow(color: .black.opacity(hovering ? 0.16 : 0.06),
-                radius: hovering ? 14 : 6, y: hovering ? 7 : 3)
-        .scaleEffect(hovering ? 1.008 : 1)
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.separator.opacity(0.5)))
+        .shadow(color: .black.opacity(hovering ? 0.16 : 0.05),
+                radius: hovering ? 12 : 5, y: hovering ? 6 : 2)
+        .scaleEffect(hovering ? 1.012 : 1)
         .animation(.spring(response: 0.3, dampingFraction: 0.75), value: hovering)
         .onHover { hovering = $0 }
     }
@@ -74,36 +90,51 @@ private struct NewsCard: View {
     @ViewBuilder
     private var preview: some View {
         if let img = item.imageURL {
-            AsyncImage(url: img, transaction: Transaction(animation: .easeOut(duration: 0.3))) { phase in
-                switch phase {
-                case .success(let image):
-                    image.resizable().aspectRatio(contentMode: .fill)
-                case .failure:
-                    placeholder(icon: "photo")
-                default:
-                    placeholder(icon: nil)
+            Color.clear
+                .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                .overlay { CachedThumbnail(url: img) }
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .overlay(alignment: .bottomTrailing) {
+                    Image(systemName: "play.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(.white.opacity(0.85))
+                        .shadow(radius: 4)
+                        .padding(8)
+                        .opacity(hovering ? 1 : 0)
+                        .animation(.easeOut(duration: 0.2), value: hovering)
                 }
-            }
-            .frame(height: 220)
-            .frame(maxWidth: .infinity)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .overlay(alignment: .bottomTrailing) {
-                Image(systemName: "play.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle(.white.opacity(0.85))
-                    .shadow(radius: 4)
-                    .padding(10)
-                    .opacity(hovering ? 1 : 0)
-                    .animation(.easeOut(duration: 0.2), value: hovering)
-            }
         }
     }
+}
 
-    private func placeholder(icon: String?) -> some View {
+/// превью из дискового кэша на 15 дней (ImageCache), с плавным появлением
+private struct CachedThumbnail: View {
+    let url: URL
+    @State private var image: NSImage?
+    @State private var failed = false
+
+    var body: some View {
         ZStack {
-            Rectangle().fill(.quaternary)
-            if let icon { Image(systemName: icon).font(.largeTitle).foregroundStyle(.tertiary) }
-            else { ProgressView() }
+            if let image {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .transition(.opacity)
+            } else if failed {
+                Rectangle().fill(.quaternary)
+                    .overlay { Image(systemName: "photo").font(.title).foregroundStyle(.tertiary) }
+            } else {
+                Rectangle().fill(.quaternary).overlay { ProgressView().controlSize(.small) }
+            }
+        }
+        .task(id: url) {
+            failed = false
+            image = nil
+            if let data = await ImageCache.shared.data(for: url), let img = NSImage(data: data) {
+                withAnimation(.easeOut(duration: 0.25)) { image = img }
+            } else {
+                failed = true
+            }
         }
     }
 }
@@ -113,13 +144,15 @@ private struct NewsCardSkeleton: View {
     @State private var dim = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            RoundedRectangle(cornerRadius: 12).fill(.quaternary).frame(height: 220)
-            RoundedRectangle(cornerRadius: 6).fill(.quaternary).frame(height: 20)
-            RoundedRectangle(cornerRadius: 6).fill(.quaternary).frame(width: 160, height: 14)
+        VStack(alignment: .leading, spacing: 10) {
+            Color.clear.aspectRatio(16.0 / 9.0, contentMode: .fit)
+                .overlay { RoundedRectangle(cornerRadius: 10).fill(.quaternary) }
+            RoundedRectangle(cornerRadius: 6).fill(.quaternary).frame(height: 16)
+            RoundedRectangle(cornerRadius: 6).fill(.quaternary).frame(width: 120, height: 12)
         }
-        .padding(14)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 18))
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 16))
         .opacity(dim ? 0.5 : 1)
         .onAppear {
             withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { dim = true }

@@ -1,38 +1,54 @@
 import Foundation
+import CryptoKit
 
-/// кэш HTML открытых статей в памяти: повторный заход в течение 5 минут
-/// открывается мгновенно, потом запись автоудаляется
-/// ponytail: in-memory словарь, TTL от последней загрузки; диск не нужен -
-/// статьи лёгкие и кэш живёт лишь минуты
+/// дисковый кэш HTML открытых статей на 15 дней: повторный заход открывается
+/// мгновенно и переживает перезапуск приложения
+/// ponytail: синхронное чтение одного файла при открытии статьи - операция
+/// пользовательская и редкая, отдельный поток не нужен; ключ - SHA256 от url
 @MainActor
 final class PageCache {
     static let shared = PageCache()
 
-    private struct Entry {
-        let html: String
-        let storedAt: Date
+    private let ttl: TimeInterval = 15 * 86_400
+    private let dir: URL
+    private var swept = false
+
+    private init() {
+        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        dir = base.appendingPathComponent("ANNReaderPages", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     }
-
-    private let ttl: TimeInterval = 300
-    private var entries: [String: Entry] = [:]
-
-    private init() {}
 
     /// свежий HTML для url, если он есть и не протух
     func html(for url: URL) -> String? {
-        let key = url.absoluteString
-        guard let entry = entries[key] else { return nil }
-        if Date().timeIntervalSince(entry.storedAt) >= ttl {
-            entries[key] = nil
-            return nil
-        }
-        return entry.html
+        let path = cachePath(url)
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: path.path),
+              let mtime = attrs[.modificationDate] as? Date,
+              Date().timeIntervalSince(mtime) < ttl else { return nil }
+        return try? String(contentsOf: path, encoding: .utf8)
     }
 
-    /// сохраняет HTML и попутно выметает протухшие записи
+    /// сохраняет HTML и один раз за запуск выметает протухшие записи
     func store(_ html: String, for url: URL) {
-        let now = Date()
-        entries = entries.filter { now.timeIntervalSince($0.value.storedAt) < ttl }
-        entries[url.absoluteString] = Entry(html: html, storedAt: now)
+        sweepOnce()
+        try? html.write(to: cachePath(url), atomically: true, encoding: .utf8)
+    }
+
+    private func cachePath(_ url: URL) -> URL {
+        let digest = SHA256.hash(data: Data(url.absoluteString.utf8))
+        let key = digest.map { String(format: "%02x", $0) }.joined()
+        return dir.appendingPathComponent("\(key).html")
+    }
+
+    private func sweepOnce() {
+        guard !swept else { return }
+        swept = true
+        let cutoff = Date().addingTimeInterval(-ttl)
+        let files = (try? FileManager.default.contentsOfDirectory(at: dir,
+                     includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        for file in files {
+            let mtime = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            if let mtime, mtime < cutoff { try? FileManager.default.removeItem(at: file) }
+        }
     }
 }

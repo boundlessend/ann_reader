@@ -23,10 +23,20 @@ struct TitleDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 if let t = title {
-                    header(t)
-                    infoSection(t)
-                    peopleSection("Cast", t.cast.map { "\($0.role): \($0.personName)" })
-                    peopleSection("Staff", t.staff.map { "\($0.task): \($0.personName)" })
+                    // среднее превью слева, вся информация справа
+                    HStack(alignment: .top, spacing: 24) {
+                        poster(t)
+                        VStack(alignment: .leading, spacing: 18) {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(t.name).font(.largeTitle.bold())
+                                Text(t.titleType).font(.title3).foregroundStyle(.secondary)
+                            }
+                            infoSection(t)
+                            peopleSection("Cast", t.cast.map { "\($0.role): \($0.personName)" })
+                            peopleSection("Staff", t.staff.map { "\($0.task): \($0.personName)" })
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 } else if let error {
                     ContentUnavailableView("Could not load", systemImage: "exclamationmark.triangle", description: Text(error))
                 } else {
@@ -44,17 +54,24 @@ struct TitleDetailView: View {
         .task(id: id) { await load() }
     }
 
-    private func header(_ t: EncTitle) -> some View {
-        HStack(alignment: .top, spacing: 16) {
-            if let pic = t.pictureURL {
-                AsyncImage(url: pic) { $0.resizable().scaledToFit() } placeholder: { ProgressView() }
-                    .frame(width: 160, height: 180)
-                    .clipShape(.rect(cornerRadius: 12))
+    // среднее постер-превью слева; портретные постеры ANN масштабируем по ширине
+    @ViewBuilder
+    private func poster(_ t: EncTitle) -> some View {
+        if let pic = t.pictureURL {
+            AsyncImage(url: pic) { $0.resizable().scaledToFit() } placeholder: {
+                RoundedRectangle(cornerRadius: 12).fill(.quaternary)
+                    .frame(height: 320).overlay { ProgressView() }
             }
-            VStack(alignment: .leading, spacing: 6) {
-                Text(t.name).font(.title.bold())
-                Text(t.titleType).foregroundStyle(.secondary)
-            }
+            .frame(width: 240)
+            .clipShape(.rect(cornerRadius: 12))
+            .shadow(color: .black.opacity(0.15), radius: 10, y: 4)
+        } else {
+            RoundedRectangle(cornerRadius: 12).fill(.quaternary)
+                .frame(width: 240, height: 320)
+                .overlay {
+                    Image(systemName: kind == .anime ? "tv" : "book")
+                        .font(.largeTitle).foregroundStyle(.tertiary)
+                }
         }
     }
 

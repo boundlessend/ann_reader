@@ -38,11 +38,14 @@ struct ReaderView: View {
                                style: style, onReady: { loading = false },
                                onHTML: { pageHTML = $0 })
                     .opacity(loading ? 0 : 1)   // не показываем сырую страницу до очистки
-                if loading { ReaderSkeleton() }
+                if loading { ReaderSkeleton().transition(.opacity) }
             }
-            .animation(.easeOut(duration: 0.25), value: loading)
+            .animation(.easeInOut(duration: 0.35), value: loading)
             attribution
         }
+        // переключение reader перезагружает страницу: показываем skeleton и плавно
+        // перетекаем через него, иначе контент сменяется рывком
+        .onChange(of: readerMode) { _, _ in loading = true }
         .navigationTitle(title)
         .toolbar {
             Toggle("Reader", systemImage: "doc.plaintext", isOn: $readerMode)
@@ -294,18 +297,27 @@ private struct ArticleWebView: NSViewRepresentable {
             self.onHTML = onHTML
         }
 
-        // оставляет из статьи только текст и картинки: выкидывает скрипты, iframe и
-        // рекламу, удаляет опустевшие контейнеры (бывшие рекламные места),
-        // разворачивает лениво-загружаемые картинки ANN
+        // оставляет из статьи текст, картинки и видео-ролики YouTube: выкидывает
+        // скрипты и рекламу, видео-iframes делает адаптивными 16:9, прочие iframes
+        // (реклама) удаляет, чистит опустевшие контейнеры и разворачивает ленивые картинки
         static func extractJS(_ style: ReaderStyle) -> String {
             """
             (function(){
               var body = document.querySelector('.KonaBody');
               if(!body) return;
               var clone = body.cloneNode(true);
-              clone.querySelectorAll('script, iframe, ins, .ad, .ADSYSTEM, .related-link').forEach(function(e){e.remove();});
+              clone.querySelectorAll('script, ins, .ad, .ADSYSTEM, .related-link').forEach(function(e){e.remove();});
+              clone.querySelectorAll('iframe').forEach(function(f){
+                var src = f.getAttribute('src') || '';
+                if(/youtube(-nocookie)?\\.com\\/embed/.test(src)){
+                  f.removeAttribute('width'); f.removeAttribute('height');
+                  f.style.cssText='display:block;width:100%;aspect-ratio:16/9;height:auto;border:0;border-radius:8px;';
+                  var p=f.parentElement;
+                  if(p){ p.style.cssText='position:static;width:100%;height:auto;padding:0;margin:16px 0;'; }
+                } else { f.remove(); }
+              });
               clone.querySelectorAll('div, aside, section, p').forEach(function(e){
-                if(!e.querySelector('img') && !e.textContent.trim()){ e.remove(); }
+                if(!e.querySelector('img, iframe') && !e.textContent.trim()){ e.remove(); }
               });
               clone.querySelectorAll('img[data-src]').forEach(function(img){img.src = img.getAttribute('data-src');});
               document.body.innerHTML = clone.outerHTML;
@@ -327,21 +339,36 @@ private struct ArticleWebView: NSViewRepresentable {
             """
         }
 
-        // в Safari отправляем только клики пользователя по чужим ссылкам;
-        // сторонние фреймы (реклама, аналитика) глушим молча, не открывая браузер
+        // клики пользователя по чужим ссылкам уводим в Safari; для встроенного
+        // контента пропускаем только ANN и видео-хосты (YouTube-плееру нужен их JS),
+        // остальные фреймы (реклама, аналитика) глушим молча
+        // ponytail: JS контента включён - без него не играет встроенное видео;
+        // защита держится на белом списке хостов и уводе внешних кликов в Safari
+        private static let videoHosts = ["youtube.com", "youtube-nocookie.com", "ytimg.com",
+                                         "googlevideo.com", "ggpht.com", "google.com"]
+
         func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
-                     decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
-            guard let host = action.request.url?.host else { decisionHandler(.allow); return }
+                     preferences: WKWebpagePreferences,
+                     decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy, WKWebpagePreferences) -> Void) {
+            let url = action.request.url
+            guard let host = url?.host else {
+                // наши loadHTMLString/about:/data: пропускаем, прочие схемы (javascript:) режем
+                let scheme = url?.scheme?.lowercased()
+                let benign = scheme == nil || ["about", "data", "file"].contains(scheme!)
+                decisionHandler(benign ? .allow : .cancel, preferences)
+                return
+            }
             let isANN = host.hasSuffix("animenewsnetwork.com")
             if action.navigationType == .linkActivated {
                 if isANN {
-                    decisionHandler(.allow)
+                    decisionHandler(.allow, preferences)
                 } else {
-                    if let url = action.request.url { NSWorkspace.shared.open(url) }
-                    decisionHandler(.cancel)
+                    if let url { NSWorkspace.shared.open(url) }
+                    decisionHandler(.cancel, preferences)
                 }
             } else {
-                decisionHandler(isANN ? .allow : .cancel)
+                let isVideo = Self.videoHosts.contains { host == $0 || host.hasSuffix("." + $0) }
+                decisionHandler(isANN || isVideo ? .allow : .cancel, preferences)
             }
         }
 

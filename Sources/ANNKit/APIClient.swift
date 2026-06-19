@@ -14,11 +14,12 @@ public actor APIClient {
     public static let detailsBase = "https://cdn.animenewsnetwork.com/encyclopedia/api.xml"
     public static let reportsBase = "https://www.animenewsnetwork.com/encyclopedia/reports.xml"
 
-    // свежесть кэша по типу данных: новости берём из сети всегда (кэш - только офлайн-фоллбэк),
-    // каталог и детали меняются редко
+    // свежесть кэша по типу данных: ленту новостей всегда берём из сети (кэш - только
+    // офлайн-фоллбэк), иначе пропускали бы свежие статьи; каталог и детали почти
+    // статичны - держим их 15 дней
     public static let newsMaxAge: TimeInterval = 0
-    public static let catalogMaxAge: TimeInterval = 86_400
-    public static let titleMaxAge: TimeInterval = 604_800
+    public static let catalogMaxAge: TimeInterval = 15 * 86_400
+    public static let titleMaxAge: TimeInterval = 15 * 86_400
 
     private let session: URLSession
     private let cacheDir: URL
