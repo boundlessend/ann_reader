@@ -12,8 +12,11 @@ jobs:
       - name: run ANNKit tests
         run: swift test
 
+  # артефакт dmg собираем только на main: на тег это делает release.yml,
+  # а на каждый push/PR гейтом служит job test выше
   package:
     runs-on: macos-26
+    if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
       - name: install create-dmg

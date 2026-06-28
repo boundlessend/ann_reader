@@ -1,5 +1,4 @@
 import Foundation
-import CryptoKit
 
 public enum ANNError: Error, Sendable {
     case rateLimited           // 503 от nodelay-эндпоинта
@@ -13,6 +12,10 @@ public enum ANNError: Error, Sendable {
 public actor APIClient {
     public static let detailsBase = "https://cdn.animenewsnetwork.com/encyclopedia/api.xml"
     public static let reportsBase = "https://www.animenewsnetwork.com/encyclopedia/reports.xml"
+
+    // описательный User-Agent: вежливо к API и устойчивее дефолта URLSession
+    public static let userAgent = "ANNReader/1.1 (+https://github.com/boundlessend/ann_reader)"
+    private static let maxAttempts = 3
 
     // свежесть кэша по типу данных: ленту новостей всегда берём из сети (кэш - только
     // офлайн-фоллбэк), иначе пропускали бы свежие статьи; каталог и детали почти
@@ -45,39 +48,50 @@ public actor APIClient {
         }
     }
 
-    // стабильный ключ кэша: hashValue у String рандомизируется на каждый запуск,
-    // поэтому берём SHA256 - иначе кэш не переживает перезапуск
     private func cachePath(_ url: URL) -> URL {
-        let digest = SHA256.hash(data: Data(url.absoluteString.utf8))
-        let key = digest.map { String(format: "%02x", $0) }.joined()
-        return cacheDir.appendingPathComponent("\(key).xml")
+        cacheFilePath(dir: cacheDir, url: url, ext: "xml")
     }
 
-    private func cachedIfFresh(_ path: URL, maxAge: TimeInterval) -> Data? {
-        guard maxAge > 0,
-              let attrs = try? FileManager.default.attributesOfItem(atPath: path.path),
-              let mtime = attrs[.modificationDate] as? Date,
-              Date().timeIntervalSince(mtime) < maxAge else { return nil }
-        return try? Data(contentsOf: path)
+    // транзиентные сбои стоит повторить; "нет сети" и отмену - нет
+    private func isTransient(_ error: Error) -> Bool {
+        switch error {
+        case ANNError.rateLimited: return true
+        case ANNError.http(let code): return code >= 500
+        case let u as URLError: return u.code != .notConnectedToInternet
+        default: return false
+        }
     }
 
-    /// отдаёт свежий кэш, иначе тянет из сети; при сбое сети или лимите
-    /// возвращает последнюю удачную копию, если она есть
+    /// отдаёт свежий кэш, иначе тянет из сети с повтором транзиентных сбоев;
+    /// исчерпав попытки, возвращает последнюю удачную копию, если она есть
     public func fetchData(_ url: URL, maxAge: TimeInterval) async throws -> Data {
         let path = cachePath(url)
-        if let fresh = cachedIfFresh(path, maxAge: maxAge) { return fresh }
-        do {
-            await throttle()
-            let (data, response) = try await session.data(from: url)
-            if let http = response as? HTTPURLResponse, http.statusCode != 200 {
-                throw http.statusCode == 503 ? ANNError.rateLimited : ANNError.http(http.statusCode)
-            }
-            try? data.write(to: path)
-            return data
-        } catch {
-            if let stale = try? Data(contentsOf: path) { return stale }
-            throw error
+        if maxAge > 0, cacheIsFresh(path, ttl: maxAge), let fresh = try? Data(contentsOf: path) {
+            return fresh
         }
+        var req = URLRequest(url: url)
+        req.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
+
+        var lastError: Error?
+        for attempt in 0..<Self.maxAttempts {
+            do {
+                await throttle()
+                let (data, response) = try await session.data(for: req)
+                if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+                    throw http.statusCode == 503 ? ANNError.rateLimited : ANNError.http(http.statusCode)
+                }
+                try? data.write(to: path)
+                return data
+            } catch {
+                if error is CancellationError || (error as? URLError)?.code == .cancelled { throw error }
+                lastError = error
+                guard isTransient(error), attempt < Self.maxAttempts - 1 else { break }
+                // короткий экспоненциальный бэкофф перед повтором (0.5с, затем 1с)
+                try? await Task.sleep(nanoseconds: UInt64(0.5 * pow(2, Double(attempt)) * 1_000_000_000))
+            }
+        }
+        if let stale = try? Data(contentsOf: path) { return stale }
+        throw lastError ?? ANNError.badURL
     }
 
     // id в энциклопедии ANN всегда числовой - отсекаем мусор до построения URL
@@ -101,7 +115,7 @@ public actor APIClient {
                              maxAge: TimeInterval) async throws -> [CatalogItem] {
         var comps = URLComponents(string: Self.reportsBase)!
         comps.queryItems = [
-            .init(name: "id", value: "155"),
+            .init(name: "id", value: "155"),   // 155 - отчёт-листинг энциклопедии в reports.xml
             .init(name: "type", value: kind.rawValue),
             .init(name: "nskip", value: "\(skip)"),
             .init(name: "nlist", value: "\(list)"),

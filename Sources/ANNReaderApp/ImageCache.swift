@@ -1,5 +1,5 @@
 import Foundation
-import CryptoKit
+import ANNKit
 
 /// дисковый кэш превью на 15 дней: сервер отдаёт max-age лишь сутки, а нам нужно,
 /// чтобы картинки переживали перезапуск и показывались офлайн
@@ -21,9 +21,11 @@ actor ImageCache {
     /// свежие данные из кэша, иначе из сети; при сбое сети - последняя копия с диска
     func data(for url: URL) async -> Data? {
         sweepOnce()
-        let path = cachePath(url)
-        if let fresh = freshData(path) { return fresh }
-        guard let (data, response) = try? await URLSession.shared.data(from: url),
+        let path = cacheFilePath(dir: dir, url: url, ext: "img")
+        if cacheIsFresh(path, ttl: ttl), let fresh = try? Data(contentsOf: path) { return fresh }
+        var req = URLRequest(url: url)
+        req.setValue(APIClient.userAgent, forHTTPHeaderField: "User-Agent")
+        guard let (data, response) = try? await URLSession.shared.data(for: req),
               (response as? HTTPURLResponse)?.statusCode == 200 else {
             return try? Data(contentsOf: path)
         }
@@ -31,29 +33,10 @@ actor ImageCache {
         return data
     }
 
-    private func cachePath(_ url: URL) -> URL {
-        let digest = SHA256.hash(data: Data(url.absoluteString.utf8))
-        let key = digest.map { String(format: "%02x", $0) }.joined()
-        return dir.appendingPathComponent("\(key).img")
-    }
-
-    private func freshData(_ path: URL) -> Data? {
-        guard let attrs = try? FileManager.default.attributesOfItem(atPath: path.path),
-              let mtime = attrs[.modificationDate] as? Date,
-              Date().timeIntervalSince(mtime) < ttl else { return nil }
-        return try? Data(contentsOf: path)
-    }
-
     // один раз за запуск выметаем протухшие файлы, чтобы кэш не рос вечно
     private func sweepOnce() {
         guard !swept else { return }
         swept = true
-        let cutoff = Date().addingTimeInterval(-ttl)
-        let files = (try? FileManager.default.contentsOfDirectory(at: dir,
-                     includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
-        for file in files {
-            let mtime = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
-            if let mtime, mtime < cutoff { try? FileManager.default.removeItem(at: file) }
-        }
+        cacheSweep(dir: dir, ttl: ttl)
     }
 }

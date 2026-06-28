@@ -250,7 +250,8 @@ private struct ArticleWebView: NSViewRepresentable {
     let onHTML: (String) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(url: url, readerMode: readerMode, style: style, onReady: onReady, onHTML: onHTML)
+        Coordinator(url: url, loadedOffline: offlineHTML != nil, readerMode: readerMode,
+                    style: style, onReady: onReady, onHTML: onHTML)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -283,14 +284,16 @@ private struct ArticleWebView: NSViewRepresentable {
 
     final class Coordinator: NSObject, WKNavigationDelegate {
         let url: URL
+        let loadedOffline: Bool   // сохранённая копия: повторно в PageCache не кладём
         var readerMode: Bool
         var style: ReaderStyle
         let onReady: () -> Void
         let onHTML: (String) -> Void
 
-        init(url: URL, readerMode: Bool, style: ReaderStyle,
+        init(url: URL, loadedOffline: Bool, readerMode: Bool, style: ReaderStyle,
              onReady: @escaping () -> Void, onHTML: @escaping (String) -> Void) {
             self.url = url
+            self.loadedOffline = loadedOffline
             self.readerMode = readerMode
             self.style = style
             self.onReady = onReady
@@ -352,9 +355,9 @@ private struct ArticleWebView: NSViewRepresentable {
                      decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy, WKWebpagePreferences) -> Void) {
             let url = action.request.url
             guard let host = url?.host else {
-                // наши loadHTMLString/about:/data: пропускаем, прочие схемы (javascript:) режем
+                // наши loadHTMLString/about:/data: пропускаем, прочие схемы (javascript:, file:) режем
                 let scheme = url?.scheme?.lowercased()
-                let benign = scheme == nil || ["about", "data", "file"].contains(scheme!)
+                let benign = scheme == nil || ["about", "data"].contains(scheme!)
                 decisionHandler(benign ? .allow : .cancel, preferences)
                 return
             }
@@ -373,9 +376,12 @@ private struct ArticleWebView: NSViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            // кладём исходный html в кэш для мгновенного повторного открытия
-            webView.evaluateJavaScript("document.documentElement.outerHTML") { [url] html, _ in
-                if let raw = html as? String { PageCache.shared.store(raw, for: url) }
+            // кладём исходный html в кэш для мгновенного повторного открытия; офлайн-копию
+            // (тяжёлый html со встроенными картинками) не перекэшируем - она уже на диске
+            if !loadedOffline {
+                webView.evaluateJavaScript("document.documentElement.outerHTML") { [url] html, _ in
+                    if let raw = html as? String { PageCache.shared.store(raw, for: url) }
+                }
             }
             guard readerMode else { onReady(); return }
             webView.evaluateJavaScript(Coordinator.extractJS(style)) { [weak webView, onReady, onHTML] _, _ in

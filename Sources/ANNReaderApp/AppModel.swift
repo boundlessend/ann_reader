@@ -57,6 +57,8 @@ final class AppModel {
     var loadingCatalog = false
     private var catalogKind: TitleKind = .anime
     private var catalogSkip = 0
+    // растёт на каждую новую загрузку каталога: устаревший результат после await отбрасываем
+    private var catalogGeneration = 0
 
     /// грузит выбранную категорию-ленту; список очищается, чтобы не мелькала прежняя
     func loadNews(feed: URL) async {
@@ -74,19 +76,24 @@ final class AppModel {
 
     /// грузит каталог по фильтру name (буква из алфавита или поисковый префикс)
     func loadCatalog(kind: TitleKind, name: String) async {
+        catalogGeneration += 1
+        let gen = catalogGeneration
         catalogKind = kind
         catalogName = name
         catalogSkip = 0
         loadingCatalog = true
         catalogError = nil
         do {
-            catalog = try await client.fetchCatalog(kind: kind, name: name, skip: 0, list: 50,
-                                                    maxAge: APIClient.catalogMaxAge)
-            catalogSkip = catalog.count
+            let items = try await client.fetchCatalog(kind: kind, name: name, skip: 0, list: 50,
+                                                      maxAge: APIClient.catalogMaxAge)
+            guard gen == catalogGeneration else { return }   // началась новая загрузка - наш результат устарел
+            catalog = items
+            catalogSkip = items.count
         } catch {
-            if isCancellation(error) { return }
+            guard gen == catalogGeneration, !isCancellation(error) else { return }
             catalogError = friendly(error)
         }
+        guard gen == catalogGeneration else { return }
         loadingCatalog = false
     }
 
@@ -98,16 +105,19 @@ final class AppModel {
 
     func loadMoreCatalog() async {
         guard !loadingCatalog else { return }
+        let gen = catalogGeneration
         loadingCatalog = true
         do {
             let more = try await client.fetchCatalog(kind: catalogKind, name: catalogName,
                                                      skip: catalogSkip, list: 50, maxAge: APIClient.catalogMaxAge)
+            guard gen == catalogGeneration else { return }   // фильтр сменился - дозагрузку прежнего отбрасываем
             catalog.append(contentsOf: more)
             catalogSkip += more.count
         } catch {
-            if isCancellation(error) { return }
+            guard gen == catalogGeneration, !isCancellation(error) else { return }
             catalogError = friendly(error)
         }
+        guard gen == catalogGeneration else { return }
         loadingCatalog = false
     }
 

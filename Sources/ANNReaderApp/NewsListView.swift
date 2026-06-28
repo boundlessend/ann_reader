@@ -105,6 +105,7 @@ private struct NewsCard: View {
                         .opacity(hovering ? 1 : 0)
                         .animation(.easeOut(duration: 0.2), value: hovering)
                 }
+                .accessibilityHidden(true)   // превью декоративно, заголовок карточки озвучивается
         }
     }
 }

@@ -67,6 +67,7 @@ struct TitleDetailView: View {
             .frame(width: 240)
             .clipShape(.rect(cornerRadius: 12))
             .shadow(color: .black.opacity(0.15), radius: 10, y: 4)
+            .accessibilityLabel(t.name)
         } else {
             RoundedRectangle(cornerRadius: 12).fill(.quaternary)
                 .frame(width: 240, height: 320)
@@ -74,6 +75,7 @@ struct TitleDetailView: View {
                     Image(systemName: kind == .anime ? "tv" : "book")
                         .font(.largeTitle).foregroundStyle(.tertiary)
                 }
+                .accessibilityHidden(true)
         }
     }
 
