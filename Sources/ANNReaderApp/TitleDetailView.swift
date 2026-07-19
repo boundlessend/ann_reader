@@ -40,7 +40,16 @@ struct TitleDetailView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 } else if let error {
-                    ContentUnavailableView("Could not load", systemImage: "exclamationmark.triangle", description: Text(error))
+                    ContentUnavailableView {
+                        Label("Could not load", systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text(error)
+                    } actions: {
+                        Button("Retry") {
+                            self.error = nil
+                            Task { await load() }
+                        }
+                    }
                 } else {
                     ProgressView().frame(maxWidth: .infinity, minHeight: 200)
                 }
@@ -56,13 +65,23 @@ struct TitleDetailView: View {
         .task(id: id) { await load() }
     }
 
-    // среднее постер-превью слева; портретные постеры ANN масштабируем по ширине
+    // среднее постер-превью слева; портретные постеры ANN масштабируем по ширине;
+    // через ImageCache, чтобы постер жил офлайн наравне с превью новостей
     @ViewBuilder
     private func poster(_ t: EncTitle) -> some View {
         if let pic = t.pictureURL {
-            AsyncImage(url: pic) { $0.resizable().scaledToFit() } placeholder: {
+            CachedAsyncImage(url: pic) { image in
+                image.resizable().scaledToFit()
+            } placeholder: { failed in
                 RoundedRectangle(cornerRadius: 12).fill(.quaternary)
-                    .frame(height: 320).overlay { ProgressView() }
+                    .frame(height: 320)
+                    .overlay {
+                        if failed {
+                            Image(systemName: "photo").font(.largeTitle).foregroundStyle(.tertiary)
+                        } else {
+                            ProgressView()
+                        }
+                    }
             }
             .frame(width: 240)
             .clipShape(.rect(cornerRadius: 12))

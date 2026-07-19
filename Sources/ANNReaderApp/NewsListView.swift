@@ -34,9 +34,9 @@ struct NewsListView: View {
                                 ForEach(0..<9, id: \.self) { _ in NewsCardSkeleton() }
                             } else {
                                 ForEach(model.news) { item in
-                                    NavigationLink {
-                                        ReaderView(url: item.link, title: item.title, offlineHTML: nil)
-                                    } label: {
+                                    NavigationLink(value: Route.article(url: item.link,
+                                                                        title: item.title,
+                                                                        offline: false)) {
                                         NewsCard(item: item)
                                     }
                                     .buttonStyle(.plain)
@@ -94,7 +94,19 @@ private struct NewsCard: View {
         if let img = item.imageURL {
             Color.clear
                 .aspectRatio(16.0 / 9.0, contentMode: .fit)
-                .overlay { CachedThumbnail(url: img) }
+                .overlay {
+                    CachedAsyncImage(url: img) { image in
+                        image.resizable().aspectRatio(contentMode: .fill)
+                    } placeholder: { failed in
+                        Rectangle().fill(.quaternary).overlay {
+                            if failed {
+                                Image(systemName: "photo").font(.title).foregroundStyle(.tertiary)
+                            } else {
+                                ProgressView().controlSize(.small)
+                            }
+                        }
+                    }
+                }
                 .clipShape(RoundedRectangle(cornerRadius: 10))
                 .overlay(alignment: .bottomTrailing) {
                     Image(systemName: "play.circle.fill")
@@ -106,38 +118,6 @@ private struct NewsCard: View {
                         .animation(.easeOut(duration: 0.2), value: hovering)
                 }
                 .accessibilityHidden(true)   // превью декоративно, заголовок карточки озвучивается
-        }
-    }
-}
-
-/// превью из дискового кэша на 15 дней (ImageCache), с плавным появлением
-private struct CachedThumbnail: View {
-    let url: URL
-    @State private var image: NSImage?
-    @State private var failed = false
-
-    var body: some View {
-        ZStack {
-            if let image {
-                Image(nsImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .transition(.opacity)
-            } else if failed {
-                Rectangle().fill(.quaternary)
-                    .overlay { Image(systemName: "photo").font(.title).foregroundStyle(.tertiary) }
-            } else {
-                Rectangle().fill(.quaternary).overlay { ProgressView().controlSize(.small) }
-            }
-        }
-        .task(id: url) {
-            failed = false
-            image = nil
-            if let data = await ImageCache.shared.data(for: url), let img = NSImage(data: data) {
-                withAnimation(.easeOut(duration: 0.25)) { image = img }
-            } else {
-                failed = true
-            }
         }
     }
 }

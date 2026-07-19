@@ -28,13 +28,15 @@ public actor APIClient {
     private let cacheDir: URL
     private let minInterval: TimeInterval
     private var nextSlot = Date.distantPast
+    private var swept = false
 
-    public init(minInterval: TimeInterval = 1.0, session: URLSession = .shared) {
+    /// cacheDir - каталог xml-кэша; nil - стандартный Caches/ANNReader (тесты передают временный)
+    public init(minInterval: TimeInterval = 1.0, session: URLSession = .shared, cacheDir: URL? = nil) {
         self.minInterval = minInterval
         self.session = session
         let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        cacheDir = base.appendingPathComponent("ANNReader", isDirectory: true)
-        try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+        self.cacheDir = cacheDir ?? base.appendingPathComponent("ANNReader", isDirectory: true)
+        try? FileManager.default.createDirectory(at: self.cacheDir, withIntermediateDirectories: true)
     }
 
     // резервирует следующий слот без await до присваивания, поэтому гонок нет
@@ -65,6 +67,12 @@ public actor APIClient {
     /// отдаёт свежий кэш, иначе тянет из сети с повтором транзиентных сбоев;
     /// исчерпав попытки, возвращает последнюю удачную копию, если она есть
     public func fetchData(_ url: URL, maxAge: TimeInterval) async throws -> Data {
+        // раз за запуск выметаем xml старше самого долгого ttl, иначе каждый
+        // поисковый запрос оставлял бы файл навсегда
+        if !swept {
+            swept = true
+            cacheSweep(dir: cacheDir, ttl: Self.catalogMaxAge)
+        }
         let path = cachePath(url)
         if maxAge > 0, cacheIsFresh(path, ttl: maxAge), let fresh = try? Data(contentsOf: path) {
             return fresh

@@ -68,7 +68,6 @@ public enum HeraldParser {
 
     private static func decodeEntities(_ s: String) -> String {
         var out = s
-            .replacingOccurrences(of: "&amp;", with: "&")
             .replacingOccurrences(of: "&lt;", with: "<")
             .replacingOccurrences(of: "&gt;", with: ">")
             .replacingOccurrences(of: "&quot;", with: "\"")
@@ -78,7 +77,8 @@ public enum HeraldParser {
         for pattern in [#"&#x([0-9a-fA-F]+);"#: 16, #"&#(\d+);"#: 10] {
             out = replaceNumeric(out, pattern: pattern.key, radix: pattern.value)
         }
-        return out
+        // &amp; строго последним: иначе "&amp;lt;" декодировался бы дважды в "<"
+        return out.replacingOccurrences(of: "&amp;", with: "&")
     }
 
     private static func replaceNumeric(_ s: String, pattern: String, radix: Int) -> String {

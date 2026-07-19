@@ -8,6 +8,12 @@ DIST="dist"
 BUNDLE="$DIST/$APP.app"
 RES="$BUNDLE/Contents/Resources"
 
+# версия из последнего git-тега (v1.2 -> 1.2), номер сборки - число коммитов;
+# без тегов (свежий клон) - 0.0.0, чтобы локальная сборка не падала
+VERSION=$(git describe --tags --match 'v*' --abbrev=0 2>/dev/null | sed 's/^v//')
+VERSION=${VERSION:-0.0.0}
+BUILD=$(git rev-list --count HEAD)
+
 swift build -c release
 
 rm -rf "$BUNDLE"
@@ -27,8 +33,8 @@ cat > "$BUNDLE/Contents/Info.plist" <<PLIST
   <key>CFBundleIdentifier</key><string>com.annreader.app</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.1</string>
-  <key>CFBundleVersion</key><string>2</string>
+  <key>CFBundleShortVersionString</key><string>$VERSION</string>
+  <key>CFBundleVersion</key><string>$BUILD</string>
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
   <key>LSMinimumSystemVersion</key><string>26.0</string>
   <key>NSHighResolutionCapable</key><true/>
@@ -45,6 +51,9 @@ codesign --force --deep \
   --entitlements Resources/ANNReader.entitlements --sign - "$BUNDLE"
 
 rm -f "$DIST/$APP"*.dmg
-create-dmg "$BUNDLE" "$DIST" || true   # ненулевой код, если нет Developer ID - это ок для ad-hoc
+# ненулевой код без Developer ID - ок для ad-hoc, но сам .dmg обязан появиться:
+# проверка ls ниже валит скрипт, если create-dmg упал по другой причине
+create-dmg "$BUNDLE" "$DIST" || echo "create-dmg: ненулевой код (подпись Developer ID недоступна?)"
+ls "$DIST/$APP"*.dmg
 echo "готово:"
 ls -la "$DIST"

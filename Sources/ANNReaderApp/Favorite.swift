@@ -5,6 +5,8 @@ import ANNKit
 /// закладка тайтла; детали тянутся по id из API или кэша при открытии
 @Model
 final class Favorite {
+    // id уникален без учёта kind: у энциклопедии ANN единое пространство id
+    // для аниме и манги (api.xml?manga=<id аниме> отвечает "no result")
     @Attribute(.unique) var id: String
     var kindRaw: String
     var name: String

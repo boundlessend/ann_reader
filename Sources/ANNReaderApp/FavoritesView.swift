@@ -13,9 +13,7 @@ struct FavoritesView: View {
             } else {
                 List {
                     ForEach(favorites) { fav in
-                        NavigationLink {
-                            TitleDetailView(kind: fav.kind, id: fav.id, name: fav.name)
-                        } label: {
+                        NavigationLink(value: Route.title(kind: fav.kind, id: fav.id, name: fav.name)) {
                             VStack(alignment: .leading) {
                                 Text(fav.name).font(.headline)
                                 Text(fav.kind.rawValue).font(.caption).foregroundStyle(.secondary)

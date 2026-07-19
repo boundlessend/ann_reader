@@ -23,11 +23,17 @@ private func stubSession() -> URLSession {
     return URLSession(configuration: cfg)
 }
 
+// временный каталог кэша на тест: не пишем в реальный пользовательский Caches
+private func tempCacheDir() -> URL {
+    FileManager.default.temporaryDirectory
+        .appendingPathComponent("ANNKitTests-\(UUID().uuidString)", isDirectory: true)
+}
+
 // ядро Фазы 1: N запросов должны растягиваться минимум на (N-1)*interval
 @Test func throttleSerializesSlots() async throws {
     let interval = 0.05
     let n = 20
-    let client = APIClient(minInterval: interval, session: stubSession())
+    let client = APIClient(minInterval: interval, session: stubSession(), cacheDir: tempCacheDir())
     let url = URL(string: "https://example.com/a")!
 
     let start = Date()
@@ -42,6 +48,52 @@ private func stubSession() -> URLSession {
     }
     let elapsed = Date().timeIntervalSince(start)
     #expect(elapsed >= Double(n - 1) * interval)
+}
+
+// стаб со сценарием: отдаёт ответы из очереди по порядку
+final class ScriptedProtocol: URLProtocol {
+    nonisolated(unsafe) static var script: [(code: Int, body: Data)] = []
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let step = Self.script.isEmpty ? (code: 200, body: Data()) : Self.script.removeFirst()
+        let resp = HTTPURLResponse(url: request.url!, statusCode: step.code,
+                                   httpVersion: nil, headerFields: nil)!
+        client?.urlProtocol(self, didReceive: resp, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: step.body)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+// делят static-очередь ScriptedProtocol, поэтому выполняются последовательно
+@Suite(.serialized) struct FetchRetryTests {
+    private func scriptedClient() -> APIClient {
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.protocolClasses = [ScriptedProtocol.self]
+        return APIClient(minInterval: 0.01, session: URLSession(configuration: cfg),
+                         cacheDir: tempCacheDir())
+    }
+
+    @Test func retriesTransientErrorsUntilSuccess() async throws {
+        ScriptedProtocol.script = [(500, Data()), (503, Data()), (200, Data("ok".utf8))]
+        let client = scriptedClient()
+        let data = try await client.fetchData(URL(string: "https://example.com/r")!, maxAge: 0)
+        #expect(data == Data("ok".utf8))
+        #expect(ScriptedProtocol.script.isEmpty)
+    }
+
+    @Test func fallsBackToStaleCacheWhenAttemptsExhausted() async throws {
+        let client = scriptedClient()
+        let url = URL(string: "https://example.com/s")!
+        ScriptedProtocol.script = [(200, Data("good".utf8))]
+        _ = try await client.fetchData(url, maxAge: 0)   // кладёт копию в кэш
+        ScriptedProtocol.script = [(500, Data()), (500, Data()), (500, Data())]
+        let stale = try await client.fetchData(url, maxAge: 0)
+        #expect(stale == Data("good".utf8))
+        #expect(ScriptedProtocol.script.isEmpty)   // все три попытки исчерпаны
+    }
 }
 
 @Test func parsesEncyclopediaTitle() throws {
@@ -129,4 +181,15 @@ private func stubSession() -> URLSession {
     #expect(rev.title == "Uncanny Counter Season 1 Review")
     #expect(rev.link.absoluteString == "https://www.animenewsnetwork.com/review/uncanny-counter-season-1/live-action-series/.238365")
     #expect(rev.imageURL != nil)
+}
+
+// &amp; декодируется последним: литеральный "&amp;lt;" остаётся "&lt;", не "<"
+@Test func decodesEntitiesSinglePass() throws {
+    let html = """
+    <div class="herald box news" data-topics="article1 news">
+      <h3><a href="/news/2026-01-01/x/.1">A &amp;lt;tag&amp;gt; &amp; &#8217;quote&#8217;</a></h3>
+    </div>
+    """
+    let item = try #require(try HeraldParser.parse(Data(html.utf8)).first)
+    #expect(item.title == "A &lt;tag&gt; & \u{2019}quote\u{2019}")
 }

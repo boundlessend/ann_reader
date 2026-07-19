@@ -18,6 +18,9 @@ struct CatalogView: View {
         }
         .navigationTitle(kind == .anime ? "Anime" : "Manga")
         .task(id: kind) {
+            // task перезапускается и при возврате из карточки тайтла: если каталог
+            // этого раздела уже загружен, не сбрасываем поиск и позицию
+            if model.catalogKind == kind, !model.catalog.isEmpty { return }
             model.catalogQuery = ""
             await model.loadCatalog(kind: kind, name: "A")
         }
@@ -76,9 +79,7 @@ struct CatalogView: View {
         } else {
             List {
                 ForEach(model.catalog) { item in
-                    NavigationLink {
-                        TitleDetailView(kind: item.kind, id: item.id, name: item.name)
-                    } label: {
+                    NavigationLink(value: Route.title(kind: item.kind, id: item.id, name: item.name)) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(item.name).font(.headline)
                             HStack(spacing: 8) {
@@ -89,7 +90,7 @@ struct CatalogView: View {
                         }
                     }
                 }
-                if !model.catalog.isEmpty {
+                if !model.catalog.isEmpty, !model.catalogExhausted {
                     Button("Load more") { Task { await model.loadMoreCatalog() } }
                         .frame(maxWidth: .infinity)
                 }

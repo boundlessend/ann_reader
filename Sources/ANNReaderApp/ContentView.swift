@@ -57,10 +57,13 @@ enum Tab: String, CaseIterable, Identifiable {
 }
 
 /// главное окно: сайдбар разделов (ленты, энциклопедия, избранное, сохранённое)
-/// и детальная область с отдельным стеком навигации на каждый раздел
+/// и детальная область с отдельным стеком навигации на каждый раздел;
+/// path каждого раздела хранится здесь, поэтому открытая статья или карточка
+/// переживает переключение вкладок
 struct ContentView: View {
     @Environment(AppModel.self) private var model
     @State private var tab: Tab = .all
+    @State private var paths: [Tab: NavigationPath] = [:]
 
     var body: some View {
         NavigationSplitView {
@@ -81,12 +84,20 @@ struct ContentView: View {
                 if model.isOffline { offlineBanner }
                 // явный стек на раздел: неявная навигация detail-колонки
                 // рассинхронизируется после возврата из внешнего браузера
-                NavigationStack {
-                    sectionView
+                NavigationStack(path: pathBinding) {
+                    sectionView.modifier(RouteDestinations())
                 }
                 .id(tab)
             }
+            .environment(\.pushRoute) { route in
+                paths[tab, default: NavigationPath()].append(route)
+            }
         }
+    }
+
+    private var pathBinding: Binding<NavigationPath> {
+        Binding(get: { paths[tab] ?? NavigationPath() },
+                set: { paths[tab] = $0 })
     }
 
     @ViewBuilder

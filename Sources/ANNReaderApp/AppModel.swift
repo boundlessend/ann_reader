@@ -49,28 +49,38 @@ final class AppModel {
     var news: [NewsItem] = []
     var newsError: String?
     var loadingNews = false
+    // растёт на каждую загрузку ленты: Refresh порождает неструктурированную задачу,
+    // которую смена вкладки не отменяет, и без счётчика её результат затирал бы новую ленту
+    private var newsGeneration = 0
 
     var catalog: [CatalogItem] = []
     var catalogQuery = ""               // текст в поле поиска
     private(set) var catalogName = "A"  // активный фильтр: буква или поисковый префикс
     var catalogError: String?
     var loadingCatalog = false
-    private var catalogKind: TitleKind = .anime
+    private(set) var catalogKind: TitleKind = .anime
+    private(set) var catalogExhausted = false   // последняя страница короче pageSize - дальше пусто
     private var catalogSkip = 0
+    private static let pageSize = 50
     // растёт на каждую новую загрузку каталога: устаревший результат после await отбрасываем
     private var catalogGeneration = 0
 
     /// грузит выбранную категорию-ленту; список очищается, чтобы не мелькала прежняя
     func loadNews(feed: URL) async {
+        newsGeneration += 1
+        let gen = newsGeneration
         loadingNews = true
         newsError = nil
         news = []
         do {
-            news = try await client.fetchNews(feed: feed, maxAge: APIClient.newsMaxAge)
+            let items = try await client.fetchNews(feed: feed, maxAge: APIClient.newsMaxAge)
+            guard gen == newsGeneration else { return }   // началась новая загрузка
+            news = items
         } catch {
-            if isCancellation(error) { return }   // активна уже новая загрузка - не трогаем состояние
+            guard gen == newsGeneration, !isCancellation(error) else { return }
             newsError = friendly(error)
         }
+        guard gen == newsGeneration else { return }
         loadingNews = false
     }
 
@@ -84,11 +94,13 @@ final class AppModel {
         loadingCatalog = true
         catalogError = nil
         do {
-            let items = try await client.fetchCatalog(kind: kind, name: name, skip: 0, list: 50,
+            let items = try await client.fetchCatalog(kind: kind, name: name, skip: 0,
+                                                      list: Self.pageSize,
                                                       maxAge: APIClient.catalogMaxAge)
             guard gen == catalogGeneration else { return }   // началась новая загрузка - наш результат устарел
             catalog = items
             catalogSkip = items.count
+            catalogExhausted = items.count < Self.pageSize
         } catch {
             guard gen == catalogGeneration, !isCancellation(error) else { return }
             catalogError = friendly(error)
@@ -104,15 +116,17 @@ final class AppModel {
     }
 
     func loadMoreCatalog() async {
-        guard !loadingCatalog else { return }
+        guard !loadingCatalog, !catalogExhausted else { return }
         let gen = catalogGeneration
         loadingCatalog = true
         do {
             let more = try await client.fetchCatalog(kind: catalogKind, name: catalogName,
-                                                     skip: catalogSkip, list: 50, maxAge: APIClient.catalogMaxAge)
+                                                     skip: catalogSkip, list: Self.pageSize,
+                                                     maxAge: APIClient.catalogMaxAge)
             guard gen == catalogGeneration else { return }   // фильтр сменился - дозагрузку прежнего отбрасываем
             catalog.append(contentsOf: more)
             catalogSkip += more.count
+            catalogExhausted = more.count < Self.pageSize
         } catch {
             guard gen == catalogGeneration, !isCancellation(error) else { return }
             catalogError = friendly(error)

@@ -9,12 +9,22 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  test:
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+      - name: run ANNKit tests
+        run: swift test
+
+  release:
+    runs-on: macos-26
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # полная история: package.sh берёт версию из git describe
       - name: install create-dmg
-        run: npm install -g create-dmg
+        run: npm install -g create-dmg@8.1.0
       - name: build app bundle and dmg
         run: ./package.sh
       - name: publish release with dmg

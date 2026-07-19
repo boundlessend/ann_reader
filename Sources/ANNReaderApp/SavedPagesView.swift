@@ -14,9 +14,7 @@ struct SavedPagesView: View {
                 List {
                     ForEach(pages) { page in
                         if let url = page.url {
-                            NavigationLink {
-                                ReaderView(url: url, title: page.title, offlineHTML: page.offlineHTML)
-                            } label: {
+                            NavigationLink(value: Route.article(url: url, title: page.title, offline: true)) {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(page.title).font(.headline)
                                     Text(page.savedAt, format: .dateTime.day().month().year())

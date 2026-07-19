@@ -10,35 +10,67 @@ import WebKit
 struct ReaderView: View {
     let url: URL
     let title: String
-    let offlineHTML: String?   // самодостаточный html для сохранённых страниц (офлайн)
+    let offline: Bool   // открыть сохранённую офлайн-копию из SwiftData вместо сети
 
     @Environment(\.modelContext) private var context
-    @Query private var saved: [SavedPage]
+    @Environment(\.pushRoute) private var pushRoute
+    @Query private var saved: [SavedPage]   // только запись текущего url, не вся таблица
 
     @State private var readerMode = true
     @State private var loading = true
+    @State private var loadError: String?
+    @State private var reloadToken = UUID()
     @State private var pageHTML: String?   // очищенный html статьи для сохранения
+    @State private var displayTitle: String
     @AppStorage("readerFontSize") private var fontSize: Double = 17
     @AppStorage("readerFont") private var font = ReaderFont.system
     @AppStorage("readerTheme") private var theme = ReaderTheme.auto
     @AppStorage("readerDyslexia") private var dyslexia = false
 
+    init(url: URL, title: String, offline: Bool) {
+        self.url = url
+        self.title = title
+        self.offline = offline
+        _displayTitle = State(initialValue: title)
+        let urlString = url.absoluteString
+        _saved = Query(filter: #Predicate<SavedPage> { $0.urlString == urlString })
+    }
+
     private var style: ReaderStyle {
         ReaderStyle(fontSize: fontSize, font: font, theme: theme, dyslexia: dyslexia)
     }
 
-    private var isSaved: Bool {
-        saved.contains { $0.urlString == url.absoluteString }
+    private var isSaved: Bool { !saved.isEmpty }
+
+    private var offlineHTML: String? {
+        offline ? saved.first?.offlineHTML : nil
     }
 
     var body: some View {
         VStack(spacing: 0) {
             ZStack {
                 ArticleWebView(url: url, offlineHTML: offlineHTML, readerMode: readerMode,
-                               style: style, onReady: { loading = false },
-                               onHTML: { pageHTML = $0 })
-                    .opacity(loading ? 0 : 1)   // не показываем сырую страницу до очистки
-                if loading { ReaderSkeleton().transition(.opacity) }
+                               style: style,
+                               onReady: { loading = false },
+                               onHTML: { handleExtracted($0) },
+                               onTitle: { handleTitle($0) },
+                               onError: { loadError = $0; loading = false },
+                               onPush: { pushRoute(.article(url: $0, title: Self.slugTitle($0),
+                                                            offline: false)) })
+                    .id(reloadToken)
+                    .opacity(loading || loadError != nil ? 0 : 1)   // не показываем сырую страницу до очистки
+                if let loadError {
+                    ContentUnavailableView {
+                        Label("Could not load the article", systemImage: "wifi.slash")
+                    } description: {
+                        Text(loadError)
+                    } actions: {
+                        Button("Retry") { retry() }
+                        Button("Open in Safari") { NSWorkspace.shared.open(url) }
+                    }
+                } else if loading {
+                    ReaderSkeleton().transition(.opacity)
+                }
             }
             .animation(.easeInOut(duration: 0.35), value: loading)
             attribution
@@ -46,7 +78,7 @@ struct ReaderView: View {
         // переключение reader перезагружает страницу: показываем skeleton и плавно
         // перетекаем через него, иначе контент сменяется рывком
         .onChange(of: readerMode) { _, _ in loading = true }
-        .navigationTitle(title)
+        .navigationTitle(displayTitle)
         .toolbar {
             Toggle("Reader", systemImage: "doc.plaintext", isOn: $readerMode)
             typographyMenu.disabled(!readerMode)
@@ -77,23 +109,63 @@ struct ReaderView: View {
         }
     }
 
+    private func retry() {
+        loadError = nil
+        loading = true
+        reloadToken = UUID()   // пересоздаёт webview, загрузка начинается заново
+    }
+
+    // заголовок пушнутой ссылки до загрузки - слаг из url, после didFinish
+    // подставляем настоящий document.title без хвоста сайта
+    private func handleTitle(_ raw: String) {
+        let cleaned = raw.replacingOccurrences(of: " - Anime News Network", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleaned.isEmpty { displayTitle = cleaned }
+    }
+
+    // очищенный html приходит после каждой загрузки (в обоих режимах читалки);
+    // если статья сохранена без офлайн-копии (сохранили до извлечения), дозаполняем
+    private func handleExtracted(_ html: String) {
+        pageHTML = html
+        if let page = saved.first, page.offlineHTML == nil {
+            page.offlineHTML = Self.wrap(html)
+            inlineImages(into: html)
+        }
+    }
+
     // мгновенно переключаем закладку, офлайн-html со встроенными картинками
     // дозагружаем фоном и дописываем в ту же запись
     private func toggleSaved() {
-        if let existing = saved.first(where: { $0.urlString == url.absoluteString }) {
+        if let existing = saved.first {
             context.delete(existing)
             return
         }
         let cleaned = pageHTML
-        let page = SavedPage(urlString: url.absoluteString, title: title,
+        let page = SavedPage(urlString: url.absoluteString, title: displayTitle,
                              savedAt: Date(), offlineHTML: cleaned.map(Self.wrap))
         context.insert(page)
-        if let cleaned {
-            Task {
-                let inlined = await ImageInliner.inline(html: cleaned)
+        if let cleaned { inlineImages(into: cleaned) }
+    }
+
+    // встраивание картинок идёт фоном; по завершении перечитываем запись по url,
+    // потому что закладку могли снять, пока шёл инлайн
+    private func inlineImages(into cleaned: String) {
+        let urlString = url.absoluteString
+        let context = context
+        Task {
+            let inlined = await ImageInliner.inline(html: cleaned)
+            let match = FetchDescriptor<SavedPage>(
+                predicate: #Predicate { $0.urlString == urlString })
+            if let page = try? context.fetch(match).first {
                 page.offlineHTML = Self.wrap(inlined)
             }
         }
+    }
+
+    // человекочитаемый заголовок из слага: /news/2026-06-19/foo-bar/.123 -> "foo bar"
+    private static func slugTitle(_ url: URL) -> String {
+        let slug = url.pathComponents.last { !$0.hasPrefix(".") && $0 != "/" } ?? url.absoluteString
+        return slug.replacingOccurrences(of: "-", with: " ")
     }
 
     // оборачиваем очищенное тело в минимальный документ с KonaBody,
@@ -248,19 +320,25 @@ private struct ArticleWebView: NSViewRepresentable {
     let style: ReaderStyle
     let onReady: () -> Void
     let onHTML: (String) -> Void
+    let onTitle: (String) -> Void
+    let onError: (String) -> Void
+    let onPush: (URL) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(url: url, loadedOffline: offlineHTML != nil, readerMode: readerMode,
-                    style: style, onReady: onReady, onHTML: onHTML)
+        Coordinator(url: url, readerMode: readerMode, style: style, onReady: onReady,
+                    onHTML: onHTML, onTitle: onTitle, onError: onError, onPush: onPush)
     }
 
     func makeNSView(context: Context) -> WKWebView {
         let web = FixedWebView()
         web.navigationDelegate = context.coordinator
+        let coord = context.coordinator
         // сохранённая офлайн-копия > свежий кэш (мгновенно) > сеть
         if let offlineHTML {
+            coord.localHTML = offlineHTML
             web.loadHTMLString(offlineHTML, baseURL: url)
         } else if let cached = PageCache.shared.html(for: url) {
+            coord.localHTML = cached
             web.loadHTMLString(cached, baseURL: url)
         } else {
             web.load(URLRequest(url: url))
@@ -276,7 +354,13 @@ private struct ArticleWebView: NSViewRepresentable {
         coord.style = style
 
         if modeChanged {
-            web.reload()   // didFinish сам решит: чистить статью или показать целиком
+            // локальный контент перезагружаем той же строкой: reload() у страницы
+            // из loadHTMLString ушёл бы в сеть за baseURL и офлайн ломался бы
+            if let html = coord.localHTML {
+                web.loadHTMLString(html, baseURL: url)
+            } else {
+                web.reload()   // didFinish сам решит: чистить статью или показать целиком
+            }
         } else if styleChanged && readerMode {
             web.evaluateJavaScript(Coordinator.styleJS(style))
         }
@@ -284,30 +368,38 @@ private struct ArticleWebView: NSViewRepresentable {
 
     final class Coordinator: NSObject, WKNavigationDelegate {
         let url: URL
-        let loadedOffline: Bool   // сохранённая копия: повторно в PageCache не кладём
+        var localHTML: String?   // офлайн-копия или кэш: в PageCache повторно не кладём
         var readerMode: Bool
         var style: ReaderStyle
         let onReady: () -> Void
         let onHTML: (String) -> Void
+        let onTitle: (String) -> Void
+        let onError: (String) -> Void
+        let onPush: (URL) -> Void
 
-        init(url: URL, loadedOffline: Bool, readerMode: Bool, style: ReaderStyle,
-             onReady: @escaping () -> Void, onHTML: @escaping (String) -> Void) {
+        init(url: URL, readerMode: Bool, style: ReaderStyle,
+             onReady: @escaping () -> Void, onHTML: @escaping (String) -> Void,
+             onTitle: @escaping (String) -> Void, onError: @escaping (String) -> Void,
+             onPush: @escaping (URL) -> Void) {
             self.url = url
-            self.loadedOffline = loadedOffline
             self.readerMode = readerMode
             self.style = style
             self.onReady = onReady
             self.onHTML = onHTML
+            self.onTitle = onTitle
+            self.onError = onError
+            self.onPush = onPush
         }
 
-        // оставляет из статьи текст, картинки и видео-ролики YouTube: выкидывает
-        // скрипты и рекламу, видео-iframes делает адаптивными 16:9, прочие iframes
-        // (реклама) удаляет, чистит опустевшие контейнеры и разворачивает ленивые картинки
-        static func extractJS(_ style: ReaderStyle) -> String {
+        // собирает очищенную копию статьи (текст, картинки, видео YouTube) и
+        // возвращает её html; replace - ещё и заменить ею страницу. выкидывает
+        // скрипты и рекламу, видео-iframes делает адаптивными 16:9, прочие
+        // iframes удаляет, чистит пустые контейнеры, разворачивает lazy-картинки
+        static func extractJS(_ style: ReaderStyle, replace: Bool) -> String {
             """
             (function(){
               var body = document.querySelector('.KonaBody');
-              if(!body) return;
+              if(!body) return null;
               var clone = body.cloneNode(true);
               clone.querySelectorAll('script, ins, .ad, .ADSYSTEM, .related-link').forEach(function(e){e.remove();});
               clone.querySelectorAll('iframe').forEach(function(f){
@@ -323,8 +415,9 @@ private struct ArticleWebView: NSViewRepresentable {
                 if(!e.querySelector('img, iframe') && !e.textContent.trim()){ e.remove(); }
               });
               clone.querySelectorAll('img[data-src]').forEach(function(img){img.src = img.getAttribute('data-src');});
-              document.body.innerHTML = clone.outerHTML;
-              \(styleJS(style))
+              \(replace ? "document.body.innerHTML = clone.outerHTML;" : "")
+              \(replace ? styleJS(style) : "")
+              return clone.outerHTML;
             })();
             """
         }
@@ -342,9 +435,10 @@ private struct ArticleWebView: NSViewRepresentable {
             """
         }
 
-        // клики пользователя по чужим ссылкам уводим в Safari; для встроенного
-        // контента пропускаем только ANN и видео-хосты (YouTube-плееру нужен их JS),
-        // остальные фреймы (реклама, аналитика) глушим молча
+        // клики по ссылкам ANN пушат новый экран читалки (навигация внутри webview
+        // портила бы кэш и сохранение и не имела кнопки "назад"), остальные клики
+        // уводим в браузер; для встроенного контента пропускаем только ANN и
+        // видео-хосты (YouTube-плееру нужен их JS), прочие фреймы глушим молча
         // ponytail: JS контента включён - без него не играет встроенное видео;
         // защита держится на белом списке хостов и уводе внешних кликов в Safari
         private static let videoHosts = ["youtube.com", "youtube-nocookie.com", "ytimg.com",
@@ -353,22 +447,22 @@ private struct ArticleWebView: NSViewRepresentable {
         func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
                      preferences: WKWebpagePreferences,
                      decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy, WKWebpagePreferences) -> Void) {
-            let url = action.request.url
-            guard let host = url?.host else {
+            let target = action.request.url
+            guard let host = target?.host else {
                 // наши loadHTMLString/about:/data: пропускаем, прочие схемы (javascript:, file:) режем
-                let scheme = url?.scheme?.lowercased()
+                let scheme = target?.scheme?.lowercased()
                 let benign = scheme == nil || ["about", "data"].contains(scheme!)
                 decisionHandler(benign ? .allow : .cancel, preferences)
                 return
             }
             let isANN = host.hasSuffix("animenewsnetwork.com")
             if action.navigationType == .linkActivated {
-                if isANN {
-                    decisionHandler(.allow, preferences)
-                } else {
-                    if let url { NSWorkspace.shared.open(url) }
-                    decisionHandler(.cancel, preferences)
+                if isANN, let target {
+                    onPush(target)
+                } else if let target {
+                    NSWorkspace.shared.open(target)
                 }
+                decisionHandler(.cancel, preferences)
             } else {
                 let isVideo = Self.videoHosts.contains { host == $0 || host.hasSuffix("." + $0) }
                 decisionHandler(isANN || isVideo ? .allow : .cancel, preferences)
@@ -376,21 +470,40 @@ private struct ArticleWebView: NSViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            // кладём исходный html в кэш для мгновенного повторного открытия; офлайн-копию
-            // (тяжёлый html со встроенными картинками) не перекэшируем - она уже на диске
-            if !loadedOffline {
+            // сырой html сетевой загрузки кладём в кэш для мгновенного повторного
+            // открытия; локальный контент не перекладываем: повторная запись
+            // обновляла бы mtime и продлевала 15-дневный ttl бесконечно
+            if localHTML == nil {
                 webView.evaluateJavaScript("document.documentElement.outerHTML") { [url] html, _ in
                     if let raw = html as? String { PageCache.shared.store(raw, for: url) }
                 }
-            }
-            guard readerMode else { onReady(); return }
-            webView.evaluateJavaScript(Coordinator.extractJS(style)) { [weak webView, onReady, onHTML] _, _ in
-                onReady()
-                // очищенное тело отдаём наверх - его сохраняем для офлайна
-                webView?.evaluateJavaScript("document.body.innerHTML") { cleaned, _ in
-                    if let cleaned = cleaned as? String { onHTML(cleaned) }
+                webView.evaluateJavaScript("document.title") { [onTitle] t, _ in
+                    if let t = t as? String { onTitle(t) }
                 }
             }
+            // очищенное тело отдаём наверх в обоих режимах - его сохраняем для офлайна
+            webView.evaluateJavaScript(Coordinator.extractJS(style, replace: readerMode)) { [onReady, onHTML] cleaned, _ in
+                onReady()
+                if let cleaned = cleaned as? String { onHTML(cleaned) }
+            }
+        }
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            report(error)
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!,
+                     withError error: Error) {
+            report(error)
+        }
+
+        // -999 и WebKit 102 - последствия наших же .cancel-решений (внешние ссылки,
+        // пуш статьи), а не сбой загрузки
+        private func report(_ error: Error) {
+            let e = error as NSError
+            if e.code == NSURLErrorCancelled { return }
+            if e.domain == "WebKitErrorDomain" && e.code == 102 { return }
+            onError(e.localizedDescription)
         }
     }
 }
