@@ -51,3 +51,15 @@
 "Retry" = "Réessayer";
 "Could not load the article" = "Impossible de charger l'article";
 "Open in Safari" = "Ouvrir dans Safari";
+"Updates" = "Mises à jour";
+"Version" = "Version";
+"Check for Updates" = "Rechercher les mises à jour";
+"You're up to date" = "Vous êtes à jour";
+"Version %@ is available" = "La version %@ est disponible";
+"Update available" = "Mise à jour disponible";
+"ANN Reader %@ is ready to download. You have %@." = "ANN Reader %@ est prêt à télécharger. Vous avez la version %@.";
+"Later" = "Plus tard";
+"Download" = "Télécharger";
+"GitHub returned HTTP %lld." = "GitHub a répondu HTTP %lld.";
+"Unexpected response from GitHub." = "Réponse inattendue de GitHub.";
+"Development build without a version." = "Version de développement sans numéro.";

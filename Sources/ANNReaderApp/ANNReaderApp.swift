@@ -11,5 +11,10 @@ struct ANNReaderApp: App {
                 .environment(model)
         }
         .modelContainer(for: [Favorite.self, SavedPage.self])
+
+        Settings {
+            SettingsView()
+                .environment(model)
+        }
     }
 }

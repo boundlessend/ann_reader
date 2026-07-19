@@ -51,3 +51,15 @@
 "Retry" = "Retry";
 "Could not load the article" = "Could not load the article";
 "Open in Safari" = "Open in Safari";
+"Updates" = "Updates";
+"Version" = "Version";
+"Check for Updates" = "Check for Updates";
+"You're up to date" = "You're up to date";
+"Version %@ is available" = "Version %@ is available";
+"Update available" = "Update available";
+"ANN Reader %@ is ready to download. You have %@." = "ANN Reader %@ is ready to download. You have %@.";
+"Later" = "Later";
+"Download" = "Download";
+"GitHub returned HTTP %lld." = "GitHub returned HTTP %lld.";
+"Unexpected response from GitHub." = "Unexpected response from GitHub.";
+"Development build without a version." = "Development build without a version.";

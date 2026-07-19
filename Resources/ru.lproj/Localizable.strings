@@ -51,3 +51,15 @@
 "Retry" = "Повторить";
 "Could not load the article" = "Не удалось загрузить статью";
 "Open in Safari" = "Открыть в Safari";
+"Updates" = "Обновления";
+"Version" = "Версия";
+"Check for Updates" = "Проверить обновления";
+"You're up to date" = "У вас последняя версия";
+"Version %@ is available" = "Доступна версия %@";
+"Update available" = "Доступно обновление";
+"ANN Reader %@ is ready to download. You have %@." = "ANN Reader %@ готов к загрузке. У вас версия %@.";
+"Later" = "Позже";
+"Download" = "Скачать";
+"GitHub returned HTTP %lld." = "GitHub ответил HTTP %lld.";
+"Unexpected response from GitHub." = "Неожиданный ответ GitHub.";
+"Development build without a version." = "Сборка разработки без версии.";

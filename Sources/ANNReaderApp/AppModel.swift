@@ -138,4 +138,45 @@ final class AppModel {
     func title(kind: TitleKind, id: String) async throws -> EncTitle {
         try await client.fetchTitle(kind: kind, id: id, maxAge: APIClient.titleMaxAge)
     }
+
+    enum UpdateStatus: Equatable {
+        case idle
+        case checking
+        case upToDate
+        case available(ReleaseInfo)
+        case failed(String)
+    }
+
+    var updateStatus: UpdateStatus = .idle
+    var showUpdateSheet = false
+
+    /// тихая проверка при запуске: ошибки и "всё свежо" молча глотаем -
+    /// пользователь ничего не просил, окно только если вышла новая версия
+    func checkForUpdatesQuietly() async {
+        guard let current = UpdateChecker.currentVersion,        // dev-запуск без бандла
+              let latest = try? await UpdateChecker.fetchLatest(),
+              UpdateChecker.isNewer(latest.version, than: current) else { return }
+        updateStatus = .available(latest)
+        showUpdateSheet = true
+    }
+
+    /// ручная проверка из настроек: показывает любой исход, включая ошибку
+    func checkForUpdates() async {
+        guard let current = UpdateChecker.currentVersion else {
+            updateStatus = .failed(String(localized: "Development build without a version."))
+            return
+        }
+        updateStatus = .checking
+        do {
+            let latest = try await UpdateChecker.fetchLatest()
+            if UpdateChecker.isNewer(latest.version, than: current) {
+                updateStatus = .available(latest)
+                showUpdateSheet = true
+            } else {
+                updateStatus = .upToDate
+            }
+        } catch {
+            updateStatus = .failed(friendly(error))
+        }
+    }
 }

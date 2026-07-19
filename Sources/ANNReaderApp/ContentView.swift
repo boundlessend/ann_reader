@@ -66,6 +66,7 @@ struct ContentView: View {
     @State private var paths: [Tab: NavigationPath] = [:]
 
     var body: some View {
+        @Bindable var model = model
         NavigationSplitView {
             List(selection: $tab) {
                 Section("Read") {
@@ -93,6 +94,12 @@ struct ContentView: View {
                 paths[tab, default: NavigationPath()].append(route)
             }
         }
+        .sheet(isPresented: $model.showUpdateSheet) {
+            if case let .available(release) = model.updateStatus {
+                UpdateSheetView(release: release)
+            }
+        }
+        .task { await model.checkForUpdatesQuietly() }
     }
 
     private var pathBinding: Binding<NavigationPath> {
