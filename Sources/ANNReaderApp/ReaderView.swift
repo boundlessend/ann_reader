@@ -85,7 +85,7 @@ struct ReaderView: View {
             Button(isSaved ? "Remove from saved" : "Save",
                    systemImage: isSaved ? "bookmark.fill" : "bookmark") { toggleSaved() }
                 .symbolEffect(.bounce, value: isSaved)
-            Button("Safari", systemImage: "safari") { NSWorkspace.shared.open(url) }
+            Button("Open in Safari", systemImage: "safari") { NSWorkspace.shared.open(url) }
         }
     }
 

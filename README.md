@@ -22,6 +22,7 @@
 - **Save anything**: bookmark any article. Saved pages are stored on device with their images inlined, so they open instantly and fully offline.
 - **Encyclopedia** catalog for anime and manga with search and first-letter paging; each title shows its poster, info fields, voice cast, and staff.
 - **Favorites** kept on device with SwiftData, plus a 15-day on-device cache of pages and images for instant reopen and offline reading.
+- **Built-in update check**: the app quietly compares its version with the latest GitHub release on launch and shows an in-app dialog when a new version is out; you can also check manually in **Settings** (Cmd+,). Nothing is downloaded or installed automatically - the Download button opens the release page.
 - Liquid Glass interface, localized in English, Russian, and French.
 
 ## Install
@@ -48,6 +49,8 @@ Requirements: macOS 26 and Xcode 26.
 swift test       # run the ANNKit core tests
 ./package.sh     # build dist/ANN Reader.app and the .dmg
 ```
+
+The app version and build number are derived from the latest `v*` git tag, so a fresh clone without tags builds as 0.0.0.
 
 The app runs in the App Sandbox with outgoing network access only.
 
